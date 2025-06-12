@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Таблица лидеров</h2>
+<table>
+    <thead>
+        <tr>
+            <th>Место</th>
+            <th>Логин</th>
+            <th>Очки</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for leader in leaders %}
+        <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ leader.login }}</td>
+            <td>{{ leader.points }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}
