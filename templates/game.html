@@ -35,7 +35,7 @@
 </div>
 
 <!-- Форма и результаты -->
-<form id="guess-form" method="POST" action="{{ url_for('game') }}" onsubmit="return validateForm()">
+<form id="guess-form" method="POST" action="{{ url_for('game') }}">
     <input type="hidden" name="place_id" value="{{ place.id if place else '' }}">
     <input type="hidden" id="lat-input" name="lat">
     <input type="hidden" id="lon-input" name="lon">

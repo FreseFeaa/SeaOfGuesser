@@ -1,10 +1,10 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 import mysql.connector
-import random
 import math
+import os
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key_here'
+app.secret_key = os.urandom(24)
 
 # Database configuration
 db_config = {
@@ -17,11 +17,9 @@ db_config = {
 def get_db_connection():
     return mysql.connector.connect(**db_config)
 
-# Helper function to calculate distance between two points
 def calculate_distance(lat1, lon1, lat2, lon2):
     return math.sqrt((lat2 - lat1)**2 + (lon2 - lon1)**2)
 
-# Helper function to calculate points based on distance
 def calculate_points(distance):
     max_points = 1000
     if distance == 0:
@@ -31,77 +29,141 @@ def calculate_points(distance):
 
 @app.route('/')
 def index():
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-    return redirect(url_for('game'))
+    if 'user_id' in session:
+        return redirect(url_for('game'))
+    return redirect(url_for('login'))
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    if 'user_id' in session:
+        return redirect(url_for('game'))
+    
     if request.method == 'POST':
         login = request.form.get('login')
-        password = request.form.get('password')  # В реальном приложении нужно хеширование
+        password = request.form.get('password')
+        
+        # Проверка заполнения полей
+        if not login or not password:
+            flash('Пожалуйста, заполните все поля', 'error')
+            return render_template('auth.html')
         
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         
-        cursor.execute("SELECT * FROM users WHERE login = %s AND password = %s", (login, password))
-        user = cursor.fetchone()
-        
-        cursor.close()
-        conn.close()
-        
-        if user:
+        try:
+            cursor.execute("SELECT * FROM users WHERE login = %s AND password = %s", (login, password))
+            user = cursor.fetchone()
+            
+            if not user:
+                flash('Неверный логин или пароль', 'error')
+                return render_template('auth.html')
+            
             session['user_id'] = user['id']
             session['login'] = user['login']
             session['email'] = user['email']
             session['points'] = user['points']
             return redirect(url_for('game'))
-        else:
-            flash('Неверный логин или пароль', 'error')
+        
+        except Exception as e:
+            flash(f'Ошибка при входе: {str(e)}', 'error')
+            return render_template('auth.html')
+        
+        finally:
+            cursor.close()
+            conn.close()
     
-    return render_template('login.html')
+    return render_template('auth.html')
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
+    if 'user_id' in session:
+        return redirect(url_for('game'))
+    
     if request.method == 'POST':
         login = request.form.get('login')
         email = request.form.get('email')
         password = request.form.get('password')
         confirm_password = request.form.get('confirm_password')
         
+        # Проверка заполнения полей
+        if not all([login, email, password, confirm_password]):
+            flash('Пожалуйста, заполните все поля', 'error')
+            return render_template('auth.html')
+        
         if password != confirm_password:
             flash('Пароли не совпадают', 'error')
-            return redirect(url_for('register'))
+            return render_template('auth.html')
         
         conn = get_db_connection()
         cursor = conn.cursor()
         
         try:
+            # Проверка существующего логина
+            cursor.execute("SELECT id FROM users WHERE login = %s", (login,))
+            if cursor.fetchone():
+                flash('Пользователь с таким логином уже существует', 'error')
+                return render_template('auth.html')
+            
+            # Проверка существующего email
+            cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
+            if cursor.fetchone():
+                flash('Пользователь с таким email уже существует', 'error')
+                return render_template('auth.html')
+            
+            # Создание нового пользователя
             cursor.execute("INSERT INTO users (login, email, password, points) VALUES (%s, %s, %s, 0)", 
                          (login, email, password))
             conn.commit()
-            
             user_id = cursor.lastrowid
-            
-            cursor.close()
-            conn.close()
             
             session['user_id'] = user_id
             session['login'] = login
             session['email'] = email
             session['points'] = 0
-            
             return redirect(url_for('game'))
-        except mysql.connector.IntegrityError:
-            flash('Пользователь с таким логином или email уже существует', 'error')
+        
+        except mysql.connector.Error as err:
+            flash(f'Ошибка при регистрации: {err.msg}', 'error')
+            return render_template('auth.html')
+        
+        finally:
             cursor.close()
             conn.close()
     
-    return render_template('register.html')
+    return render_template('auth.html')
 
-@app.route('/forgot_password')
+@app.route('/forgot_password', methods=['GET', 'POST'])
 def forgot_password():
-    return render_template('forgot_password.html')
+    if 'user_id' in session:
+        return redirect(url_for('game'))
+    
+    if request.method == 'POST':
+        login = request.form.get('login')
+        
+        if not login:
+            flash('Пожалуйста, введите ваш логин', 'error')
+            return render_template('auth.html')
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        try:
+            cursor.execute("SELECT email FROM users WHERE login = %s", (login,))
+            user = cursor.fetchone()
+            
+            if user:
+                flash(f'Функция восстановления пароля временно недоступна. Обратитесь к администратору. (Email: {user["email"]})', 'info')
+            else:
+                flash('Пользователь с таким логином не найден', 'error')
+            
+            return render_template('auth.html')
+        
+        finally:
+            cursor.close()
+            conn.close()
+    
+    # GET-запрос обрабатывается в auth.html
+    return redirect(url_for('login'))
 
 @app.route('/game', methods=['GET', 'POST'])
 def game():
@@ -165,6 +227,7 @@ def game():
     conn.close()
     
     return render_template('game.html', place=place)
+
 @app.route('/leaderboard')
 def leaderboard():
     if 'user_id' not in session:
