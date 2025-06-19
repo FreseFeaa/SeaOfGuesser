@@ -16,22 +16,20 @@
     </div>
 
     <!-- Блок с интерактивной картой -->
-    <div style="flex: 1; min-width: 300px; position: relative; border: 2px solid #4CAF50; padding: 10px;">
-        <h3>Отметьте на карте</h3>
-        <div style="position: relative; width: 100%; height: 400px;">
-            <img id="map" src="{{ url_for('static', filename='map.jpg') }}" 
-                 alt="Карта для отметки" 
-                 style="width: 100%; height: 100%; object-fit: contain; cursor: crosshair;">
-            
-            <!-- Маркеры и линия -->
-            <div id="user-marker" style="display: none; position: absolute; width: 16px; height: 16px; 
-                 background: red; border-radius: 50%; transform: translate(-50%, -50%); z-index: 2;"></div>
-            <div id="correct-marker" style="display: none; position: absolute; width: 16px; height: 16px; 
-                 background: green; border-radius: 50%; transform: translate(-50%, -50%); z-index: 2;"></div>
-            <svg id="line" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-                 pointer-events: none; display: none; z-index: 1;"></svg>
-        </div>
+   <div style="flex: 1; min-width: 300px; position: relative; border: 2px solid #4CAF50; padding: 10px;">
+    <h3>Отметьте на карте</h3>
+    <div id="map-container">
+        <img id="map" src="{{ url_for('static', filename='images/map.jpg') }}" alt="Карта для отметки">
+        
+        <!-- Маркеры и линия -->
+        <div id="user-marker" style="display: none; position: absolute; width: 16px; height: 16px; 
+             background: red; border-radius: 50%; transform: translate(-50%, -50%); z-index: 2;"></div>
+        <div id="correct-marker" style="display: none; position: absolute; width: 16px; height: 16px; 
+             background: green; border-radius: 50%; transform: translate(-50%, -50%); z-index: 2;"></div>
+        <svg id="line" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+             pointer-events: none; display: none; z-index: 1;"></svg>
     </div>
+</div>
 </div>
 
 <!-- Форма и результаты -->
@@ -63,7 +61,6 @@
         Проверить
     </button>
 </form>
-
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const map = document.getElementById('map');
@@ -76,58 +73,94 @@ document.addEventListener('DOMContentLoaded', function() {
     const resultPanel = document.getElementById('result-panel');
     const newGameBtn = document.getElementById('new-game-btn');
     
-    // Функция для получения позиции на карте
-    function getMapPosition(clientX, clientY) {
+    // Получаем реальные размеры изображения карты
+    function getMapDimensions() {
         const rect = map.getBoundingClientRect();
-        const x = ((clientX - rect.left) / rect.width * 10).toFixed(3);
-        const y = ((clientY - rect.top) / rect.height * 10).toFixed(3);
-        return { x, y, pixelX: clientX - rect.left, pixelY: clientY - rect.top };
+        const naturalWidth = map.naturalWidth;
+        const naturalHeight = map.naturalHeight;
+        
+        // Рассчитываем масштаб и отступы
+        const containerRatio = rect.width / rect.height;
+        const imageRatio = naturalWidth / naturalHeight;
+        
+        let displayWidth, displayHeight, offsetX, offsetY;
+        
+        if (containerRatio > imageRatio) {
+            displayHeight = rect.height;
+            displayWidth = rect.height * imageRatio;
+            offsetX = (rect.width - displayWidth) / 2;
+            offsetY = 0;
+        } else {
+            displayWidth = rect.width;
+            displayHeight = rect.width / imageRatio;
+            offsetX = 0;
+            offsetY = (rect.height - displayHeight) / 2;
+        }
+        
+        return {
+            rect,
+            naturalWidth,
+            naturalHeight,
+            displayWidth,
+            displayHeight,
+            offsetX,
+            offsetY
+        };
     }
     
     // Клик по карте
     map.addEventListener('click', function(e) {
         if (resultPanel.style.display === 'block') return;
         
-        const pos = getMapPosition(e.clientX, e.clientY);
+        const dim = getMapDimensions();
+        const clickX = e.clientX - dim.rect.left - dim.offsetX;
+        const clickY = e.clientY - dim.rect.top - dim.offsetY;
         
-        userMarker.style.left = pos.pixelX + 'px';
-        userMarker.style.top = pos.pixelY + 'px';
+        // Проверяем, что клик внутри изображения
+        if (clickX < 0 || clickY < 0 || 
+            clickX > dim.displayWidth || clickY > dim.displayHeight) {
+            return;
+        }
+        
+        // Рассчитываем координаты (0-26)
+        const x = (clickX / dim.displayWidth * 26).toFixed(3);
+        const y = (clickY / dim.displayHeight * 26).toFixed(3);
+        
+        // Позиция маркера в пикселях контейнера
+        const markerX = clickX + dim.offsetX;
+        const markerY = clickY + dim.offsetY;
+        
+        userMarker.style.left = markerX + 'px';
+        userMarker.style.top = markerY + 'px';
         userMarker.style.display = 'block';
         
-        latInput.value = pos.x;
-        lonInput.value = pos.y;
+        latInput.value = x;
+        lonInput.value = y;
         submitBtn.disabled = false;
     });
     
-    // Проверка формы перед отправкой
-    function validateForm() {
-        if (!latInput.value || !lonInput.value) {
-            alert("Пожалуйста, выберите точку на карте перед проверкой!");
-            return false;
-        }
-        return true;
-    }
-    
-    // Если есть результаты
+    // Показ результатов
     {% if show_results %}
     function showResults() {
-        const rect = map.getBoundingClientRect();
-        const userX = {{ user_guess_x / 10 * 100 }};
-        const userY = {{ user_guess_y / 10 * 100 }};
-        const correctX = {{ correct_x / 10 * 100 }};
-        const correctY = {{ correct_y / 10 * 100 }};
+        const dim = getMapDimensions();
         
-        userMarker.style.left = userX + '%';
-        userMarker.style.top = userY + '%';
+        // Рассчитываем позиции маркеров
+        const userX = ({{ user_guess_x }} / 26) * dim.displayWidth + dim.offsetX;
+        const userY = ({{ user_guess_y }} / 26) * dim.displayHeight + dim.offsetY;
+        const correctX = ({{ correct_x }} / 26) * dim.displayWidth + dim.offsetX;
+        const correctY = ({{ correct_y }} / 26) * dim.displayHeight + dim.offsetY;
+        
+        userMarker.style.left = userX + 'px';
+        userMarker.style.top = userY + 'px';
         userMarker.style.display = 'block';
         
-        correctMarker.style.left = correctX + '%';
-        correctMarker.style.top = correctY + '%';
+        correctMarker.style.left = correctX + 'px';
+        correctMarker.style.top = correctY + 'px';
         correctMarker.style.display = 'block';
         
         line.innerHTML = `
-            <line x1="${userX}%" y1="${userY}%" 
-                  x2="${correctX}%" y2="${correctY}%" 
+            <line x1="${userX}" y1="${userY}" 
+                  x2="${correctX}" y2="${correctY}" 
                   stroke="blue" stroke-width="2" stroke-dasharray="5,5"/>
         `;
         line.style.display = 'block';
@@ -136,7 +169,6 @@ document.addEventListener('DOMContentLoaded', function() {
         submitBtn.style.display = 'none';
     }
     
-    // Ждем загрузки карты
     if (map.complete) {
         showResults();
     } else {

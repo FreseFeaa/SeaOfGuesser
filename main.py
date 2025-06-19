@@ -2,17 +2,18 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 import mysql.connector
 import math
 import os
-
+from config import db_conf
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
+app.secret_key = os.urandom(24) # секртнй ключ для сессий
 
-# Database configuration
+# db_config - конфиг бд
 db_config = {
-    'host': 'localhost',
-    'user': 'root',
-    'password': '12345',
-    'database': 'seabase'
+    'host': db_conf.host,
+    'user': db_conf.user,
+    'password': db_conf.password,
+    'database': db_conf.db_name
 }
+
 
 def get_db_connection():
     return mysql.connector.connect(**db_config)
@@ -24,15 +25,24 @@ def calculate_points(distance):
     max_points = 1000
     if distance == 0:
         return max_points
-    points = max(0, max_points - int(distance * 10))
-    return points
+    if distance <= 0.5:
+        return max(980, max_points - int(distance * 40))
+    if distance <= 1.0:
+        return max(950, max_points - int(distance * 100))
+    if distance <= 5.0:
+        return max(500, int(max_points * (0.8 ** distance)))
+    if distance <= 10.0:
+        return max(10, int(500 * (0.7 ** (distance - 4))))
+    return 0
 
+# Общий
 @app.route('/')
 def index():
     if 'user_id' in session:
         return redirect(url_for('game'))
     return redirect(url_for('login'))
 
+# Логин
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if 'user_id' in session:
@@ -74,6 +84,7 @@ def login():
     
     return render_template('auth.html')
 
+# Регистрация
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if 'user_id' in session:
@@ -132,6 +143,7 @@ def register():
     
     return render_template('auth.html')
 
+#Типо забытый парль (тут чисто заглушка пока чт)
 @app.route('/forgot_password', methods=['GET', 'POST'])
 def forgot_password():
     if 'user_id' in session:
@@ -144,27 +156,10 @@ def forgot_password():
             flash('Пожалуйста, введите ваш логин', 'error')
             return render_template('auth.html')
         
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        
-        try:
-            cursor.execute("SELECT email FROM users WHERE login = %s", (login,))
-            user = cursor.fetchone()
-            
-            if user:
-                flash(f'Функция восстановления пароля временно недоступна. Обратитесь к администратору. (Email: {user["email"]})', 'info')
-            else:
-                flash('Пользователь с таким логином не найден', 'error')
-            
-            return render_template('auth.html')
-        
-        finally:
-            cursor.close()
-            conn.close()
-    
-    # GET-запрос обрабатывается в auth.html
     return redirect(url_for('login'))
 
+
+#Игра
 @app.route('/game', methods=['GET', 'POST'])
 def game():
     if 'user_id' not in session:
@@ -228,6 +223,7 @@ def game():
     
     return render_template('game.html', place=place)
 
+# Топы
 @app.route('/leaderboard')
 def leaderboard():
     if 'user_id' not in session:
@@ -244,6 +240,7 @@ def leaderboard():
     
     return render_template('leaderboard.html', leaders=leaders, user=session)
 
+# Выйти из акка
 @app.route('/logout')
 def logout():
     session.clear()
